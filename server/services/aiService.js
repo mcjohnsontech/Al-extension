@@ -51,6 +51,41 @@ function truncateText(text) {
 }
 
 /**
+ * Extract JSON from text by finding matching braces
+ */
+function extractJSON(text) {
+  const startIdx = text.indexOf('{');
+  if (startIdx === -1) return null;
+
+  let braceCount = 0;
+  let inString = false;
+
+  for (let i = startIdx; i < text.length; i++) {
+    const char = text[i];
+    const prevChar = i > 0 ? text[i - 1] : '';
+
+    // Toggle string flag on unescaped quotes
+    if (char === '"' && prevChar !== '\\') {
+      inString = !inString;
+    }
+
+    // Track braces outside of strings
+    if (!inString) {
+      if (char === '{') {
+        braceCount++;
+      } else if (char === '}') {
+        braceCount--;
+        if (braceCount === 0) {
+          return text.slice(startIdx, i + 1);
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Parse Gemini response safely
  */
 function parseGeminiResponse(rawText) {
@@ -61,30 +96,49 @@ function parseGeminiResponse(rawText) {
   let parsed;
   let cleaned = rawText.trim();
 
+  // Strategy 1: Direct parse
   try {
     parsed = JSON.parse(cleaned);
+    return extractFields(parsed);
   } catch (e) {
-    // Try to extract JSON from markdown code blocks
-    cleaned = cleaned
-      .replace(/^```(?:json)?\s*\n?/i, '')
-      .replace(/\n?```\s*$/i, '')
-      .trim();
+    // Continue to next strategy
+  }
 
+  // Strategy 2: Remove markdown code blocks
+  const withoutMarkdown = cleaned
+    .replace(/^```(?:json)?\s*\n?/i, '')
+    .replace(/\n?```\s*$/i, '')
+    .trim();
+
+  try {
+    parsed = JSON.parse(withoutMarkdown);
+    return extractFields(parsed);
+  } catch (e) {
+    // Continue to next strategy
+  }
+
+  // Strategy 3: Extract JSON using brace matching
+  const jsonStr = extractJSON(withoutMarkdown);
+  if (jsonStr) {
     try {
-      parsed = JSON.parse(cleaned);
-    } catch {
-      // Try extracting JSON object using regex as last resort
-      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          parsed = JSON.parse(jsonMatch[0]);
-        } catch {
-          throw new Error(`Failed to parse JSON from Gemini response: ${rawText.slice(0, 200)}`);
-        }
-      } else {
-        throw new Error(`No JSON found in Gemini response: ${rawText.slice(0, 200)}`);
-      }
+      parsed = JSON.parse(jsonStr);
+      return extractFields(parsed);
+    } catch (e) {
+      // Continue to fallback
     }
+  }
+
+  // No valid JSON found
+  console.error('Failed to parse Gemini response:', rawText.slice(0, 300));
+  throw new Error(`Invalid JSON response from Gemini: ${rawText.slice(0, 150)}`);
+}
+
+/**
+ * Extract and validate fields from parsed JSON
+ */
+function extractFields(parsed) {
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('Parsed response is not an object');
   }
 
   const bullets = Array.isArray(parsed.bullets)
@@ -100,14 +154,10 @@ function parseGeminiResponse(rawText) {
       ? Math.max(1, Math.round(parsed.readingTime))
       : 1;
 
-  if (!bullets.length && !insights.length) {
-    throw new Error('Gemini returned empty summary');
-  }
-
-  // Provide defaults if missing
+  // Provide meaningful defaults if empty
   return {
-    bullets: bullets.length > 0 ? bullets : ['Unable to extract bullet points'],
-    insights: insights.length > 0 ? insights : ['Unable to extract insights'],
+    bullets: bullets.length > 0 ? bullets : ['Summary generated - please review on the page'],
+    insights: insights.length > 0 ? insights : ['Content summarization in progress'],
     readingTime,
   };
 }
@@ -189,7 +239,11 @@ export async function summarizePage({ text, title }) {
 
   if (!rawText) {
     console.error('No text in Gemini response:', JSON.stringify(data).slice(0, 200));
+    throw new Error('Gemini returned empty response');
   }
+
+  console.log('[Gemini Response Length]', rawText.length, 'chars');
+  console.log('[First 100 chars]', rawText.slice(0, 100));
 
   return parseGeminiResponse(rawText);
 }

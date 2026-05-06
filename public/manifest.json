@@ -2,22 +2,35 @@
   "manifest_version": 3,
   "name": "AI Page Summarizer",
   "version": "1.0.0",
-
-  "permissions": ["activeTab", "storage"],
-  "host_permissions": ["<all_urls>"],
-
+  "description": "Instantly summarize any webpage using AI — fast, private, and beautifully displayed.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
-
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"]
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
-
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_title": "AI Page Summarizer"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
   }
 }

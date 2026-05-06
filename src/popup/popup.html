@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="AI Page Summarizer — instantly summarize any webpage." />
+  <title>AI Page Summarizer</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div id="app-root">
+
+    <!-- ── Header ─────────────────────────────────────────────── -->
+    <header class="header">
+      <div class="header__logo" aria-hidden="true">✦</div>
+      <div class="header__info">
+        <div class="header__name">AI Page Summarizer</div>
+        <div class="header__page-title" id="page-title">Loading page info…</div>
+      </div>
+    </header>
+
+    <!-- ── Notification Banner ────────────────────────────────── -->
+    <div id="banner" class="banner" role="status" hidden></div>
+
+    <!-- ── Summarize Button Area ──────────────────────────────── -->
+    <div id="btn-area"></div>
+
+    <!-- ── Dynamic Content Area ───────────────────────────────── -->
+    <main id="content-area" aria-live="polite" aria-atomic="false"></main>
+
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
