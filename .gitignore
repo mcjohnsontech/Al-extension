@@ -26,3 +26,6 @@ dist-ssr
 .history/*
 .history/*
 /.history
+
+.env
+.env.example

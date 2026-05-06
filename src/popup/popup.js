@@ -96,16 +96,56 @@ async function handleSummarize() {
 
 async function handleHighlight(phrases) {
   try {
+    console.log('[Popup] handleHighlight called with phrases:', phrases);
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) return;
-    await chrome.tabs.sendMessage(tab.id, {
-      type: MESSAGE_TYPES.HIGHLIGHT_PHRASES,
-      phrases,
-    });
-    showBanner('Key phrases highlighted on the page', 'success');
+    console.log('[Popup] Active tab:', tab?.id, tab?.url);
+
+    if (!tab?.id) {
+      console.error('[Popup] No active tab found');
+      showBanner('Could not find active tab', 'warn');
+      return;
+    }
+
+    console.log('[Popup] Sending HIGHLIGHT_PHRASES message with', phrases.length, 'phrases');
+
+    try {
+      // First attempt: content script may already be running
+      await chrome.tabs.sendMessage(tab.id, {
+        type: MESSAGE_TYPES.HIGHLIGHT_PHRASES,
+        phrases,
+      });
+      console.log('[Popup] Message sent successfully');
+      showBanner('Key phrases highlighted on the page', 'success');
+    } catch (firstErr) {
+      console.log('[Popup] First attempt failed, trying to inject content script:', firstErr.message);
+
+      // Content script not present — inject it now
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content.js'],
+        });
+        console.log('[Popup] Content script injected');
+
+        // Give the script a moment to register its message listener
+        await new Promise((resolve) => setTimeout(resolve, 150));
+
+        // Retry the message
+        await chrome.tabs.sendMessage(tab.id, {
+          type: MESSAGE_TYPES.HIGHLIGHT_PHRASES,
+          phrases,
+        });
+        console.log('[Popup] Message sent successfully after injection');
+        showBanner('Key phrases highlighted on the page', 'success');
+      } catch (secondErr) {
+        console.error('[Popup] Injection and retry failed:', secondErr);
+        showBanner(`Could not inject on this page — try refreshing and try again`, 'warn');
+      }
+    }
   } catch (err) {
+    console.error('[Popup] Highlight failed:', err);
     logger.warn('Highlight failed:', err);
-    showBanner('Could not highlight — try refreshing the page', 'warn');
+    showBanner(`Could not highlight — ${err.message}`, 'warn');
   }
 }
 
@@ -113,7 +153,19 @@ async function handleClearHighlight() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) return;
-    await chrome.tabs.sendMessage(tab.id, { type: MESSAGE_TYPES.CLEAR_HIGHLIGHTS });
+
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: MESSAGE_TYPES.CLEAR_HIGHLIGHTS });
+    } catch (firstErr) {
+      // Try injecting content script if it's not loaded
+      console.log('[Popup] Injecting content script for clear highlights');
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ['content.js'],
+      });
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      await chrome.tabs.sendMessage(tab.id, { type: MESSAGE_TYPES.CLEAR_HIGHLIGHTS });
+    }
   } catch (err) {
     logger.warn('Clear highlight failed:', err);
   }

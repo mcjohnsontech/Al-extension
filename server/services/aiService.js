@@ -1,25 +1,23 @@
-
 /**
  * server/services/aiService.js
  *
- * Gemini API integration (free-tier friendly)
- * Model: gemini-2.5-flash (latest, more capable)
+ * Claude API integration via Anthropic SDK
+ * Model: claude-opus-4-7 (most capable, recommended)
  */
 
-const GEMINI_MODEL = 'gemini-2.5-flash';
-const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1/models';
+import Anthropic from '@anthropic-ai/sdk';
 
+const CLAUDE_MODEL = 'claude-opus-4-7';
 const MAX_INPUT_CHARS = 12000;
 const REQUEST_TIMEOUT_MS = 30000;
 
 /**
- * Prompt template (unified — more reliable than systemInstruction)
+ * Build the system prompt and user message
  */
-function buildPrompt({ title, text }) {
-  return `
-You are a webpage summarization assistant.
+function buildSystemPrompt() {
+  return `You are a webpage summarization assistant. Your task is to analyze web content and extract key information.
 
-Return ONLY a valid JSON object (no markdown, no code fences, no extra text):
+Always respond with ONLY a valid JSON object (no markdown, no code fences, no extra text):
 
 {
   "bullets": ["...", "..."],
@@ -27,17 +25,21 @@ Return ONLY a valid JSON object (no markdown, no code fences, no extra text):
   "readingTime": number
 }
 
-Rules:
+Guidelines:
 - bullets: 4–6 key points, each under 120 characters
-- insights: 2–4 key observations, each under 120 characters
-- readingTime: estimated minutes (integer >= 1)
+- insights: 2–4 unique takeaways or observations, each under 120 characters
+- readingTime: estimated reading time in minutes (integer >= 1)
 - Be concise, factual, and avoid repetition
+- Focus on actionable and important information`;
+}
+
+function buildUserMessage({ title, text }) {
+  return `Summarize this webpage:
 
 Title: ${title}
 
 Content:
-${text}
-`.trim();
+${text}`;
 }
 
 /**
@@ -64,12 +66,10 @@ function extractJSON(text) {
     const char = text[i];
     const prevChar = i > 0 ? text[i - 1] : '';
 
-    // Toggle string flag on unescaped quotes
     if (char === '"' && prevChar !== '\\') {
       inString = !inString;
     }
 
-    // Track braces outside of strings
     if (!inString) {
       if (char === '{') {
         braceCount++;
@@ -86,11 +86,11 @@ function extractJSON(text) {
 }
 
 /**
- * Parse Gemini response safely
+ * Parse Claude response safely
  */
-function parseGeminiResponse(rawText) {
+function parseClaudeResponse(rawText) {
   if (!rawText) {
-    throw new Error('Empty response from Gemini');
+    throw new Error('Empty response from Claude');
   }
 
   let parsed;
@@ -128,9 +128,8 @@ function parseGeminiResponse(rawText) {
     }
   }
 
-  // No valid JSON found
-  console.error('Failed to parse Gemini response:', rawText.slice(0, 300));
-  throw new Error(`Invalid JSON response from Gemini: ${rawText.slice(0, 150)}`);
+  console.error('Failed to parse Claude response:', rawText.slice(0, 300));
+  throw new Error(`Invalid JSON response from Claude: ${rawText.slice(0, 150)}`);
 }
 
 /**
@@ -154,7 +153,6 @@ function extractFields(parsed) {
       ? Math.max(1, Math.round(parsed.readingTime))
       : 1;
 
-  // Provide meaningful defaults if empty
   return {
     bullets: bullets.length > 0 ? bullets : ['Summary generated - please review on the page'],
     insights: insights.length > 0 ? insights : ['Content summarization in progress'],
@@ -163,87 +161,56 @@ function extractFields(parsed) {
 }
 
 /**
- * Main summarization function
+ * Main summarization function using Claude API
  */
 export async function summarizePage({ text, title }) {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
 
   if (!apiKey) {
-    throw new Error('GEMINI_API_KEY is not set');
+    throw new Error('ANTHROPIC_API_KEY is not set');
   }
 
   if (!text || text.length < 100) {
     throw new Error('Content too short to summarize');
   }
 
+  const client = new Anthropic({ apiKey });
   const safeText = truncateText(text);
 
-  const url = `${GEMINI_BASE_URL}/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
-
-  const requestBody = {
-    contents: [
-      {
-        role: 'user',
-        parts: [
-          {
-            text: buildPrompt({ title, text: safeText }),
-          },
-        ],
-      },
-    ],
-    generation_config: {
-      temperature: 0.3,
-      max_output_tokens: 1024,
-      top_p: 1,
-      
-    },
-  };
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-  let response;
-
   try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
-      signal: controller.signal,
+    const response = await client.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 1024,
+      system: buildSystemPrompt(),
+      messages: [
+        {
+          role: 'user',
+          content: buildUserMessage({ title, text: safeText }),
+        },
+      ],
+    }, {
+      timeout: REQUEST_TIMEOUT_MS,
     });
-  } catch (err) {
-    clearTimeout(timeoutId);
 
-    if (err.name === 'AbortError') {
-      throw new Error('Gemini request timed out');
+    if (response.stop_reason !== 'end_turn') {
+      throw new Error(`Unexpected stop reason: ${response.stop_reason}`);
     }
 
-    throw new Error(`Network error: ${err.message}`);
+    const textBlock = response.content.find(block => block.type === 'text');
+    if (!textBlock || textBlock.type !== 'text') {
+      throw new Error('No text response from Claude');
+    }
+
+    const rawText = textBlock.text;
+    console.log('[Claude Response Length]', rawText.length, 'chars');
+    console.log('[First 100 chars]', rawText.slice(0, 100));
+
+    return parseClaudeResponse(rawText);
+  } catch (err) {
+    if (err instanceof Anthropic.APIError) {
+      console.error('Claude API error:', err.message);
+      throw new Error(`Claude API error: ${err.message}`);
+    }
+    throw err;
   }
-
-  clearTimeout(timeoutId);
-
-  if (!response.ok) {
-    const errorBody = await response.text().catch(() => '');
-    console.error('Gemini API error:', errorBody);
-
-    throw new Error(
-      `Gemini API error ${response.status}: ${errorBody.slice(0, 200)}`
-    );
-  }
-
-  const data = await response.json();
-
-  const rawText =
-    data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!rawText) {
-    console.error('No text in Gemini response:', JSON.stringify(data).slice(0, 200));
-    throw new Error('Gemini returned empty response');
-  }
-
-  console.log('[Gemini Response Length]', rawText.length, 'chars');
-  console.log('[First 100 chars]', rawText.slice(0, 100));
-
-  return parseGeminiResponse(rawText);
 }

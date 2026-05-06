@@ -80,7 +80,11 @@ export function createSummaryView(summary, fromCache, { onHighlight, onClearHigh
   highlightBtn.className = 'btn btn--highlight';
   highlightBtn.textContent = '✨ Highlight on Page';
   highlightBtn.addEventListener('click', () => {
+    console.log('[SummaryView] Highlight button clicked');
+    console.log('[SummaryView] Bullets:', bullets);
+    console.log('[SummaryView] Insights:', insights);
     const phrases = [...bullets, ...insights];
+    console.log('[SummaryView] Total phrases to highlight:', phrases.length, phrases);
     onHighlight(phrases);
     highlightBtn.textContent = '✅ Highlighted';
     highlightBtn.disabled = true;

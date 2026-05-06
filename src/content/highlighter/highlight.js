@@ -136,7 +136,10 @@ export function highlightPhrases(phrases) {
   ensureStyles();
 
   const valid = phrases.filter(isValidPhrase);
-  if (!valid.length) return;
+  if (!valid.length) {
+    logger.warn('No valid phrases to highlight');
+    return;
+  }
 
   // Build a single regex that matches any of the phrases (case-insensitive)
   const escaped = valid.map((p) =>
@@ -146,8 +149,12 @@ export function highlightPhrases(phrases) {
 
   const counter = [0];
   try {
+    logger.info(`Starting highlight with ${valid.length} phrases:`, valid);
     highlightInElement(document.body, pattern, counter);
     logger.info(`Highlighted ${counter[0]} instances across ${valid.length} phrases`);
+    if (counter[0] === 0) {
+      logger.warn('No matches found on the page. Phrases may not match page content.');
+    }
   } catch (err) {
     logger.error('Highlight error:', err);
   }

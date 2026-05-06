@@ -33,13 +33,17 @@ export function sendToBackground(message) {
  */
 export function sendToTab(tabId, message) {
   return new Promise((resolve, reject) => {
+    console.log(`[sendToTab] Sending ${message.type} to tab ${tabId}`);
     chrome.tabs.sendMessage(tabId, message, (response) => {
       if (chrome.runtime.lastError) {
+        console.error(`[sendToTab] Error: ${chrome.runtime.lastError.message}`);
         return reject(new Error(chrome.runtime.lastError.message));
       }
       if (response?.error) {
+        console.error(`[sendToTab] Response error: ${response.error}`);
         return reject(new Error(response.error));
       }
+      console.log(`[sendToTab] Success, response:`, response);
       resolve(response);
     });
   });

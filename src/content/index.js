@@ -33,13 +33,19 @@ function isValidMessage(message) {
 // Message listener — must return `true` for async responses
 // ---------------------------------------------------------------------------
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  console.log('[Content] Message received:', message);
+
   if (!isValidMessage(message)) {
+    console.warn('[Content] Invalid message:', message);
     logger.warn('Content script received unknown message:', message);
     return false;
   }
 
+  console.log('[Content] Message type:', message.type);
+
   switch (message.type) {
     case MESSAGE_TYPES.EXTRACT_CONTENT: {
+      console.log('[Content] Processing EXTRACT_CONTENT');
       try {
         const payload = extractPageContent();
         sendResponse({ success: true, payload });
@@ -51,11 +57,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
 
     case MESSAGE_TYPES.HIGHLIGHT_PHRASES: {
+      console.log('[Content] Processing HIGHLIGHT_PHRASES with phrases:', message.phrases);
       const phrases = Array.isArray(message.phrases) ? message.phrases : [];
       try {
         highlightPhrases(phrases);
         sendResponse({ success: true });
       } catch (err) {
+        console.error('[Content] Highlight error:', err);
         logger.error('Highlight failed:', err);
         sendResponse({ success: false, error: err.message });
       }
@@ -63,6 +71,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
 
     case MESSAGE_TYPES.CLEAR_HIGHLIGHTS: {
+      console.log('[Content] Processing CLEAR_HIGHLIGHTS');
       try {
         clearHighlights();
         sendResponse({ success: true });
@@ -74,8 +83,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
 
     default:
+      console.warn('[Content] Unknown message type:', message.type);
       return false;
   }
 });
 
+console.log('[Content] Script initialised and listening for messages');
 logger.info('Content script initialised');
